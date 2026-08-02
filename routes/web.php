@@ -52,6 +52,14 @@ Route::middleware('auth')->group(function () {
     Route::post('/telegram/toggle-notifications', [\App\Http\Controllers\Telegram\TelegramSettingsController::class, 'toggleNotifications'])
         ->name('telegram.toggle-notifications');
     
+    // Profile Management
+    Route::get('/profile', [\App\Http\Controllers\Profile\ProfileController::class, 'index'])
+        ->name('profile.index');
+    Route::put('/profile', [\App\Http\Controllers\Profile\ProfileController::class, 'updateProfile'])
+        ->name('profile.update');
+    Route::put('/profile/password', [\App\Http\Controllers\Profile\ProfileController::class, 'updatePassword'])
+        ->name('profile.update-password');
+    
     Route::post('/logout', LogoutController::class)->name('logout');
 });
 

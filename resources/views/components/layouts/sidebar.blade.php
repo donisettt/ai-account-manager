@@ -34,18 +34,6 @@
                href="{{ route('telegram.settings') }}">
                 <i class="bi bi-telegram"></i> Telegram Bot
             </a>
-            
-            <div class="px-3 py-2 text-muted small fw-bold mt-3">MENU</div>
-            
-            <a class="nav-link" href="#">
-                <i class="bi bi-robot"></i> AI Accounts
-            </a>
-            <a class="nav-link" href="#">
-                <i class="bi bi-graph-up"></i> Reports
-            </a>
-            <a class="nav-link" href="#">
-                <i class="bi bi-gear"></i> Settings
-            </a>
         </nav>
     </div>
 </div>

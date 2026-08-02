@@ -14,7 +14,7 @@
                     </a>
                     <ul class="dropdown-menu dropdown-menu-end">
                         <li>
-                            <a class="dropdown-item" href="#">
+                            <a class="dropdown-item" href="{{ route('profile.index') }}">
                                 <i class="bi bi-person"></i> Profile
                             </a>
                         </li>
