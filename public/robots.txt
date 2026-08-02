@@ -1,0 +1,28 @@
+# AI Account Manager - Private Application
+# This is a private internal tool, not for public indexing
+
+User-agent: *
+Disallow: /
+
+# Block all search engines from indexing
+User-agent: Googlebot
+Disallow: /
+
+User-agent: Bingbot
+Disallow: /
+
+User-agent: Yahoo! Slurp
+Disallow: /
+
+User-agent: DuckDuckBot
+Disallow: /
+
+User-agent: Baiduspider
+Disallow: /
+
+User-agent: YandexBot
+Disallow: /
+
+# Additional privacy protection
+User-agent: *
+Crawl-delay: 10

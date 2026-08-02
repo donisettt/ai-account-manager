@@ -1,0 +1,7 @@
+Contact: mailto:security@your-domain.com
+Expires: 2027-12-31T23:59:59.000Z
+Preferred-Languages: id, en
+Canonical: https://your-domain.com/.well-known/security.txt
+
+# This is a private internal application
+# If you find a security vulnerability, please contact us immediately
