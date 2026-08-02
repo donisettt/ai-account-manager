@@ -25,7 +25,8 @@ class MessageFormatter
                "<b>Action:</b>\n" .
                "/log - Log aktivitas (interactive)\n" .
                "/quick EMAIL TOOL AKTIVITAS - Quick log\n" .
-               "/update EMAIL TOOL USED/TOTAL - Update usage\n\n" .
+               "/update EMAIL TOOL USED/TOTAL - Update usage\n" .
+               "/reset EMAIL TOOL DD/MM/YYYY - Set reset date\n\n" .
                
                "<b>Utility:</b>\n" .
                "/notify [on|off] - Toggle notifikasi\n" .
@@ -33,7 +34,8 @@ class MessageFormatter
                
                "<i>Contoh:</i>\n" .
                "<code>/quick akun01@gmail.com Kiro Dipakai</code>\n" .
-               "<code>/update akun01@gmail.com Kiro 3.6/50</code>";
+               "<code>/update akun01@gmail.com Kiro 3.6/50</code>\n" .
+               "<code>/reset akun01@gmail.com Kiro 15/08/2026</code>";
     }
 
     public function formatStatus(Collection $accounts): string
@@ -45,7 +47,18 @@ class MessageFormatter
         $message = "📊 <b>Status Akun - Overview</b>\n\n";
         
         foreach ($accounts as $account) {
-            $statusEmoji = match($account->status) {
+            // Get latest usage to determine real status
+            $latestUsage = $account->usageLogs->first();
+            $isLimit = false;
+            
+            if ($latestUsage) {
+                $percentage = $latestUsage->usage_percentage;
+                // Check if usage is at limit (100% or status is Limit)
+                $isLimit = ($percentage >= 100) || ($latestUsage->status === 'Limit');
+            }
+            
+            // Use red emoji if limit, otherwise use account status
+            $statusEmoji = $isLimit ? '🔴' : match($account->status) {
                 'Ready' => '🟢',
                 'In Use' => '🔵',
                 'Suspended' => '🟡',
@@ -54,20 +67,37 @@ class MessageFormatter
             };
 
             $message .= "{$statusEmoji} <b>{$account->email}</b>\n";
-            $message .= "   Status: {$account->status}\n";
+            $message .= "   Status: " . ($isLimit ? 'Limit' : $account->status) . "\n";
             
             // Latest usage
-            $latestUsage = $account->usageLogs->first();
             if ($latestUsage) {
                 $percentage = $latestUsage->usage_percentage;
                 $message .= "   Usage: {$latestUsage->limit_used}/{$latestUsage->limit_total} ";
                 $message .= "(" . number_format($percentage, 1) . "%)\n";
             }
             
-            // Tools
+            // Tools with reset info
             if ($account->tools->count() > 0) {
-                $tools = $account->tools->pluck('nama')->take(3)->join(', ');
-                $message .= "   Tools: {$tools}\n";
+                $message .= "   Tools:\n";
+                foreach ($account->tools as $tool) {
+                    $message .= "      • {$tool->nama}";
+                    
+                    // Add reset info if available
+                    if ($tool->pivot->next_reset) {
+                        $nextReset = \Carbon\Carbon::parse($tool->pivot->next_reset);
+                        $daysUntilReset = (int) now()->diffInDays($nextReset, false);
+                        
+                        if ($daysUntilReset > 0) {
+                            $message .= " → Reset {$nextReset->format('d/m')} ({$daysUntilReset} hari)";
+                        } elseif ($daysUntilReset === 0) {
+                            $message .= " → ⚡ Reset hari ini!";
+                        } else {
+                            $message .= " → ⚠️ Lewat {$nextReset->format('d/m')}";
+                        }
+                    }
+                    
+                    $message .= "\n";
+                }
             }
             
             $message .= "\n";
@@ -91,8 +121,26 @@ class MessageFormatter
             $message .= "   Status: {$account->status}\n";
             
             if ($account->tools->count() > 0) {
-                $tools = $account->tools->pluck('nama')->join(', ');
-                $message .= "   Tools: {$tools}\n";
+                $message .= "   Tools:\n";
+                foreach ($account->tools as $tool) {
+                    $message .= "      • {$tool->nama}";
+                    
+                    // Add reset info
+                    if ($tool->pivot->next_reset) {
+                        $nextReset = \Carbon\Carbon::parse($tool->pivot->next_reset);
+                        $daysUntilReset = (int) now()->diffInDays($nextReset, false);
+                        
+                        if ($daysUntilReset > 0) {
+                            $message .= " (Reset {$nextReset->format('d/m')}, {$daysUntilReset} hari)";
+                        } elseif ($daysUntilReset === 0) {
+                            $message .= " (⚡ Reset hari ini)";
+                        } else {
+                            $message .= " (⚠️ Lewat)";
+                        }
+                    }
+                    
+                    $message .= "\n";
+                }
             }
             
             $message .= "\n";
@@ -118,19 +166,40 @@ class MessageFormatter
             $message .= "<b>Catatan:</b> {$account->catatan}\n";
         }
         
-        // Tools
+        // Tools with reset info
         if ($account->tools->count() > 0) {
-            $message .= "\n<b>Tools:</b>\n";
+            $message .= "\n<b>🛠️ Tools & Reset Schedule:</b>\n";
             foreach ($account->tools as $tool) {
                 $status = $tool->status_aktif ? '✅' : '❌';
-                $message .= "  {$status} {$tool->nama}\n";
+                $message .= "  {$status} <b>{$tool->nama}</b>";
+                
+                // Add detailed reset info
+                if ($tool->pivot->next_reset) {
+                    $nextReset = \Carbon\Carbon::parse($tool->pivot->next_reset);
+                    $daysUntilReset = (int) now()->diffInDays($nextReset, false);
+                    
+                    $message .= "\n      🔄 Reset: {$nextReset->format('d/m/Y')}";
+                    
+                    if ($daysUntilReset > 0) {
+                        $message .= " ({$daysUntilReset} hari lagi)";
+                    } elseif ($daysUntilReset === 0) {
+                        $message .= " ⚡ <b>HARI INI!</b>";
+                    } else {
+                        $absDays = abs($daysUntilReset);
+                        $message .= " ⚠️ <b>Lewat {$absDays} hari</b>";
+                    }
+                } else {
+                    $message .= "\n      ⏰ Reset: <i>Belum diset</i>";
+                }
+                
+                $message .= "\n";
             }
         }
         
         // Latest usage logs
         $recentUsage = $account->usageLogs()->latest('tanggal')->limit(3)->get();
         if ($recentUsage->count() > 0) {
-            $message .= "\n<b>Usage Logs Terbaru:</b>\n";
+            $message .= "\n<b>📈 Usage Logs Terbaru:</b>\n";
             foreach ($recentUsage as $usage) {
                 $percentage = $usage->usage_percentage;
                 $emoji = $usage->status_emoji;
@@ -144,7 +213,7 @@ class MessageFormatter
         // Latest activities
         $recentActivities = $account->activityLogs()->latest('waktu')->limit(3)->get();
         if ($recentActivities->count() > 0) {
-            $message .= "\n<b>Aktivitas Terbaru:</b>\n";
+            $message .= "\n<b>🕐 Aktivitas Terbaru:</b>\n";
             foreach ($recentActivities as $activity) {
                 $emoji = match($activity->aktivitas) {
                     'Dipakai' => '▶️',
@@ -180,6 +249,25 @@ class MessageFormatter
             $message .= "   Usage: {$log->limit_used}/{$log->limit_total} ";
             $message .= "(" . number_format($percentage, 1) . "%)\n";
             $message .= "   Status: {$log->status}\n";
+            
+            // Add reset info
+            $account = $log->account;
+            $tool = $account->tools->find($log->tool_id);
+            
+            if ($tool && $tool->pivot->next_reset) {
+                $nextReset = \Carbon\Carbon::parse($tool->pivot->next_reset);
+                $daysUntilReset = (int) now()->diffInDays($nextReset, false);
+                
+                $message .= "   🔄 Reset: {$nextReset->format('d/m/Y')}";
+                
+                if ($daysUntilReset > 0) {
+                    $message .= " ({$daysUntilReset} hari lagi)\n";
+                } elseif ($daysUntilReset === 0) {
+                    $message .= " (⚡ Hari ini!)\n";
+                } else {
+                    $message .= " (⚠️ Sudah lewat)\n";
+                }
+            }
             
             if ($log->catatan) {
                 $message .= "   Note: {$log->catatan}\n";

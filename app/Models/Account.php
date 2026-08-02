@@ -49,6 +49,7 @@ class Account extends Model
     public function tools(): BelongsToMany
     {
         return $this->belongsToMany(Tool::class, 'account_tool')
+            ->withPivot('next_reset')
             ->withTimestamps();
     }
 

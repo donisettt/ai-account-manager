@@ -31,6 +31,7 @@ class Tool extends Model
     public function accounts(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
         return $this->belongsToMany(Account::class, 'account_tool')
+            ->withPivot('next_reset')
             ->withTimestamps();
     }
 

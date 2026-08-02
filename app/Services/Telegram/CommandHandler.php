@@ -50,6 +50,7 @@ class CommandHandler
                 'log' => $this->handleLog($chatId, $telegramUser, $command['params']),
                 'quick' => $this->handleQuick($chatId, $telegramUser, $command['params']),
                 'update' => $this->handleUpdate($chatId, $telegramUser, $command['params']),
+                'reset' => $this->handleReset($chatId, $telegramUser, $command['params']),
                 'notify' => $this->handleNotify($chatId, $telegramUser, $command['params']),
                 default => $this->handleUnknown($chatId),
             };
@@ -213,7 +214,7 @@ class CommandHandler
     {
         if (!$this->requireAuth($chatId, $telegramUser)) return;
 
-        $usageLogs = UsageLog::with(['account', 'tool'])
+        $usageLogs = UsageLog::with(['account.tools', 'tool'])
             ->whereDate('tanggal', today())
             ->latest('created_at')
             ->get();
@@ -332,7 +333,7 @@ class CommandHandler
 
         list($used, $total) = explode('/', $usage);
 
-        $account = Account::where('email', 'LIKE', "%{$email}%")->first();
+        $account = Account::with('tools')->where('email', 'LIKE', "%{$email}%")->first();
         $tool = Tool::where('nama', 'LIKE', "%{$toolName}%")->first();
 
         if (!$account || !$tool) {
@@ -361,13 +362,91 @@ class CommandHandler
             default => '⚪',
         };
 
+        // Get next reset info from pivot table
+        $accountTool = $account->tools->find($tool->id);
+        $resetInfo = "";
+        
+        if ($accountTool && $accountTool->pivot->next_reset) {
+            $nextReset = \Carbon\Carbon::parse($accountTool->pivot->next_reset);
+            $daysUntilReset = (int) now()->diffInDays($nextReset, false);
+            
+            if ($daysUntilReset > 0) {
+                $resetInfo = "\n🔄 Reset: {$nextReset->format('d/m/Y')} ({$daysUntilReset} hari lagi)";
+            } elseif ($daysUntilReset === 0) {
+                $resetInfo = "\n🔄 Reset: Hari ini!";
+            } else {
+                $resetInfo = "\n⚠️ Reset sudah lewat! Update tanggal reset.";
+            }
+        } else {
+            $resetInfo = "\n💡 Tip: Set tanggal reset di web app";
+        }
+
         $this->telegramService->sendMessage(
             $chatId,
             "✅ <b>Usage log berhasil diupdate!</b>\n\n" .
             "Account: {$account->email}\n" .
             "Tool: {$tool->nama}\n" .
             "Usage: {$used}/{$total} (" . number_format($percentage, 1) . "%)\n" .
-            "Status: {$statusEmoji} {$status}"
+            "Status: {$statusEmoji} {$status}" .
+            $resetInfo
+        );
+    }
+
+    private function handleReset(int $chatId, TelegramUser $telegramUser, array $params): void
+    {
+        if (!$this->requireAuth($chatId, $telegramUser)) return;
+
+        // Format: /reset akun01@gmail Kiro 15/08/2026
+        if (count($params) < 3) {
+            $this->telegramService->sendMessage(
+                $chatId,
+                "❌ Format salah.\n\n" .
+                "Gunakan: <code>/reset EMAIL TOOL TANGGAL</code>\n" .
+                "Contoh: <code>/reset akun01@gmail.com Kiro 15/08/2026</code>\n\n" .
+                "Format tanggal: DD/MM/YYYY"
+            );
+            return;
+        }
+
+        $email = $params[0];
+        $toolName = $params[1];
+        $dateStr = $params[2];
+
+        // Parse date
+        try {
+            $date = \Carbon\Carbon::createFromFormat('d/m/Y', $dateStr);
+        } catch (\Exception $e) {
+            $this->telegramService->sendMessage(
+                $chatId, 
+                "❌ Format tanggal salah.\n\nGunakan format: DD/MM/YYYY\nContoh: 15/08/2026"
+            );
+            return;
+        }
+
+        $account = Account::with('tools')->where('email', 'LIKE', "%{$email}%")->first();
+        $tool = Tool::where('nama', 'LIKE', "%{$toolName}%")->first();
+
+        if (!$account || !$tool) {
+            $this->telegramService->sendMessage($chatId, "❌ Account atau Tool tidak ditemukan.");
+            return;
+        }
+
+        // Update pivot table
+        $account->tools()->updateExistingPivot($tool->id, [
+            'next_reset' => $date
+        ]);
+
+        $daysUntilReset = (int) now()->diffInDays($date, false);
+        $resetInfo = $daysUntilReset > 0 
+            ? "({$daysUntilReset} hari lagi)"
+            : ($daysUntilReset === 0 ? "(Hari ini)" : "(Sudah lewat)");
+
+        $this->telegramService->sendMessage(
+            $chatId,
+            "✅ <b>Tanggal reset berhasil diupdate!</b>\n\n" .
+            "Account: {$account->email}\n" .
+            "Tool: {$tool->nama}\n" .
+            "Reset: {$date->format('d/m/Y')} {$resetInfo}"
         );
     }
 
