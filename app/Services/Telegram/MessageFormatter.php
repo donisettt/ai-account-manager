@@ -47,38 +47,75 @@ class MessageFormatter
         $message = "📊 <b>Status Akun - Overview</b>\n\n";
         
         foreach ($accounts as $account) {
-            // Get latest usage to determine real status
-            $latestUsage = $account->usageLogs->first();
-            $isLimit = false;
+            // Get usage logs untuk semua tools dari account ini (latest per tool)
+            $toolUsages = [];
+            $hasLimit = false;
+            $hasWarning = false;
+            $totalTools = 0;
+            $limitTools = 0;
             
-            if ($latestUsage) {
-                $percentage = $latestUsage->usage_percentage;
-                // Check if usage is at limit (100% or status is Limit)
-                $isLimit = ($percentage >= 100) || ($latestUsage->status === 'Limit');
+            foreach ($account->tools as $tool) {
+                $latestUsage = \App\Models\UsageLog::where('account_id', $account->id)
+                    ->where('tool_id', $tool->id)
+                    ->latest('tanggal')
+                    ->first();
+                
+                if ($latestUsage) {
+                    $toolUsages[$tool->id] = [
+                        'tool' => $tool,
+                        'usage' => $latestUsage,
+                        'percentage' => $latestUsage->usage_percentage
+                    ];
+                    
+                    $totalTools++;
+                    
+                    // Check status per tool
+                    if ($latestUsage->usage_percentage >= 100 || $latestUsage->status === 'Limit') {
+                        $hasLimit = true;
+                        $limitTools++;
+                    } elseif ($latestUsage->usage_percentage >= 80) {
+                        $hasWarning = true;
+                    }
+                }
             }
             
-            // Use red emoji if limit, otherwise use account status
-            $statusEmoji = $isLimit ? '🔴' : match($account->status) {
-                'Ready' => '🟢',
-                'In Use' => '🔵',
-                'Suspended' => '🟡',
-                'Expired' => '🔴',
-                default => '⚪',
-            };
+            // Determine overall account status text
+            if ($totalTools > 0 && $limitTools === $totalTools) {
+                // Semua tools limit
+                $statusText = 'All Limit';
+            } elseif ($hasLimit) {
+                // Ada beberapa tools yang limit
+                $statusText = "Partial Limit ({$limitTools}/{$totalTools})";
+            } elseif ($hasWarning) {
+                // Ada tools yang warning (>80%)
+                $statusText = 'Warning';
+            } else {
+                // Default ke status account dari database
+                $statusText = $account->status;
+            }
 
-            $message .= "{$statusEmoji} <b>{$account->email}</b>\n";
-            $message .= "   Status: " . ($isLimit ? 'Limit' : $account->status) . "\n";
+            $message .= "📧 <b>{$account->email}</b>\n";
+            $message .= "   Status: {$statusText}\n";
             
-            // Latest usage
-            if ($latestUsage) {
-                $percentage = $latestUsage->usage_percentage;
-                $message .= "   Usage: {$latestUsage->limit_used}/{$latestUsage->limit_total} ";
-                $message .= "(" . number_format($percentage, 1) . "%)\n";
+            // Display usage per tool
+            if (!empty($toolUsages)) {
+                $message .= "   Usage:\n";
+                foreach ($toolUsages as $toolUsage) {
+                    $tool = $toolUsage['tool'];
+                    $usage = $toolUsage['usage'];
+                    $percentage = $toolUsage['percentage'];
+                    
+                    // Status emoji per tool
+                    $toolEmoji = $percentage >= 100 ? '🔴' : ($percentage >= 80 ? '🟡' : '🟢');
+                    
+                    $message .= "      {$toolEmoji} {$tool->nama}: {$usage->limit_used}/{$usage->limit_total} ";
+                    $message .= "(" . number_format($percentage, 1) . "%)\n";
+                }
             }
             
             // Tools with reset info
             if ($account->tools->count() > 0) {
-                $message .= "   Tools:\n";
+                $message .= "   Reset Schedule:\n";
                 foreach ($account->tools as $tool) {
                     $message .= "      • {$tool->nama}";
                     
@@ -88,12 +125,14 @@ class MessageFormatter
                         $daysUntilReset = (int) now()->diffInDays($nextReset, false);
                         
                         if ($daysUntilReset > 0) {
-                            $message .= " → Reset {$nextReset->format('d/m')} ({$daysUntilReset} hari)";
+                            $message .= " → {$nextReset->format('d/m')} ({$daysUntilReset} hari)";
                         } elseif ($daysUntilReset === 0) {
-                            $message .= " → ⚡ Reset hari ini!";
+                            $message .= " → ⚡ Hari ini";
                         } else {
-                            $message .= " → ⚠️ Lewat {$nextReset->format('d/m')}";
+                            $message .= " → ⚠️ Lewat";
                         }
+                    } else {
+                        $message .= " → Belum diset";
                     }
                     
                     $message .= "\n";
